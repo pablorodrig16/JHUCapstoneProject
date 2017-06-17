@@ -1,0 +1,13 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+Corpora
+*.zip
+*cache*
+Draf*
+*.Rproj
+downloa*.*
+ngram*
+rscon*
+start*.R

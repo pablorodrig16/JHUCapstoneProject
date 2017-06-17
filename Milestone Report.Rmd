@@ -1,0 +1,232 @@
+---
+title: "Milestone Report - Exploring Swiftkey Corpus"
+author: "POR"
+date: "`r date()`"
+output: html_document
+---
+```{r setup, echo=TRUE, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library (knitr)
+library(dplyr)
+library(ggplot2)
+library (tidyr)
+library (tm)
+
+## this function removes all characters equal to the pattern and applies tolower.
+contentFilter<-content_transformer(function (x, pattern="[^[:space:]a-z]"){
+    x<-tolower(x)
+    x<-gsub(pattern = "'",replacement = " ",x = x)
+    result<-gsub(pattern = pattern,replacement = "",x = x)
+    result<-stripWhitespace(result)
+    return(result)
+})
+
+## this function randomly subset the corpus content to the ratio (default 1/50) of it size in lines
+subsetContent<-content_transformer(function (x, ratio=.05){
+    l<-length (x)
+    if (l>1){
+        s<-floor(l*ratio)
+        x<-x[sample(1:l,size = s,replace = TRUE)]
+        }
+    return (x)
+})
+
+n_gramTokenizer <-function(x,nG) {
+    sapply(ngrams(words(x), nG), paste, collapse = " ")
+}
+
+nword<-function (tdm, s=0.01) {
+    tdm<-removeSparseTerms(tdm,sparse = s)
+    tdm$nrow
+}
+
+sparsity<-function (tdm) {
+     s<-seq (0.02,to = 0.98,by = 0.04)
+     result<-data.frame(Sparce=s, 
+                        Terms=sapply (s, function (x) nword(tdm = tdm,s = x)))
+     return (result)
+ }
+```
+## Introduction  
+The objective of Coursera Data Science Capstone Project is to develop an app that predicts, based in a sequence of 2 words, a third one.  The prediction model should be based in some documents provided by Swiftkey.  
+This report is the assignment of week 2 of the . Basically, the aim of this paper is to get the data required by the course, preprocess it and make some exploratory analysis. Then some ideas about how I would get a predictive model.  
+I use the following packages: `dplyr`, `ggplot2`, `tidyr`, and `tm`.
+
+## Getting and processing the data  
+First, according to the task specification, data is downloaded from [Coursera-SwiftKey.zip](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip) if it is not locally available. 
+```{r getting data,cache=TRUE}
+if (!dir.exists("Corpora")){
+    dir.create("Corpora")
+    download.file(url = "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip",
+                  destfile = "Coursera-SwiftKey.zip")
+    unzip(zipfile = "Coursera-SwiftKey.zip")
+    file.remove("Coursera-SwiftKey.zip")
+}
+en_corpus<-Corpus(DirSource(directory = file.path("Corpora","en_US"),mode = "text"))
+```
+Then, the file is unzip. It has `r length(dir ("Corpora"))` directories (`r dir ("Corpora")`). Files from 'en_US' directory (`r paste(names (en_corpus),collapse = ", ")`) are used to create a corpus. These are large text files (`r paste(round(file.size(file.path("Corpora","en_US",names(en_corpus)))/(1024*1024),1),collapse=", ")` MB and `r sapply (en_corpus, function (x) length(x$content))` lines respectively).  
+
+#### Table 1  
+Summary of the corpus dimensions. 
+  
+```{r corpus characteristics}
+MB<-round(file.size(file.path("Corpora","en_US",names(en_corpus)))/(1024*1024),1)
+l<-sapply (en_corpus, function (x) length(x$content))
+char<-as.numeric(sapply (en_corpus, function (x) sum(nchar(x$content))))
+
+
+corpusChar<-cbind(sapply(strsplit(names(en_corpus),split = "\\."), function (x) x[2]),MB,l,char)
+colnames(corpusChar)<-c("Document", "Size (MB)", "Lines (n)", "Characters (n)")
+kable(corpusChar,row.names = FALSE)
+```
+
+### Cleaning the data  
+In order to handle the data with my PC, I decided to sample 1/100 lines from the content of the corpus.
+Then, I filtered the content to include characters, remove extra spaces, and convert to lower case.  
+I decided to avoid removing stop words, because I believe that I will need them in my predictive model (see below).  
+```{r clean up corpus, cache=TRUE}
+set.seed(1000)
+en_corpus<-tm_map(en_corpus, subsetContent, ratio=.01)
+
+# the following keeps only letters and spaces, and applies other transformation: tolower, stripwhitespace
+en_corpus<-tm_map(en_corpus, contentFilter)
+```
+
+### Term Document matrix for 1, 2 and 3 words n-gram  
+Using `NLP::ngrams` function, term document matrix of 1, 2, or 3 words n-grams were built.  
+```{r create TDM, cache=TRUE}
+TDM1<-TermDocumentMatrix(en_corpus,control = list(wordLengths=c(1,Inf),
+                                                  tokenize= function (x) n_gramTokenizer(x, nG = 1)))
+TDM2<-TermDocumentMatrix(en_corpus,
+                         control = list(wordLengths=c(1,Inf),
+                                        tokenize=function (x) n_gramTokenizer(x,nG = 2)))
+TDM3<-TermDocumentMatrix(en_corpus,
+                         control = list(wordLengths=c(1,Inf),
+                                        tokenize=function (x) n_gramTokenizer(x,nG = 3)))
+
+TDM1sparse<-sparsity(TDM1)
+TDM2sparse<-sparsity(TDM2)
+TDM3sparse<-sparsity(TDM3)
+
+TDMsparse<-data_frame(Sparce=TDM1sparse$Sparce,Unigrams=TDM1sparse$Terms,Bigrams=TDM2sparse$Terms,Trigrams=TDM3sparse$Terms)%>%
+    gather(key = `n-gram`,value = Terms,-Sparce)%>%
+    mutate (`n-gram`=relevel(as.factor(`n-gram`),ref = "Unigrams"))
+```
+These 1, 2, or 3 n-grams term document matrices have `r TDM1$nrow`, `r TDM2$nrow`, and `r TDM3$nrow` terms respectively. Among them, there are many with a really low frequency. For example, there are `r length(findFreqTerms(TDM1,lowfreq = 1,highfreq = 1))`, `r length(findFreqTerms(TDM2,lowfreq = 1,highfreq = 1))` and `r length(findFreqTerms(TDM3,lowfreq = 1,highfreq = 1))` unique terms per matrix with a frequency of 1. Thus, one may consider that lot of these terms as noise that should be removed before continuing. `tm::removeSparseTerms` function allows filtering out these infrequent terms. Figure 1 shows the number of terms according to the selection of the 'sparse' parameter of the function for the 3 term document matrices.
+
+#### Figure 1  
+Number of terms of term document matrices according to the sparse parameter in `tm::removeSparseTerms` function.  
+  
+```{r sparce plot}
+
+sparce<-ggplot(data = TDMsparse,aes(x = Sparce,y = Terms, color=`n-gram`))+
+    geom_line()+
+    ylab(label = "Terms (n)")+
+    theme_bw()
+
+sparce+scale_y_log10()
+```
+
+## Exploring the data  
+
+
+### Distribution of terms according to the documents in the corpus  
+
+A good approach to reduce the number of words (unigrams), as suggested above, would be to use `tm::removeSparseTerms` function with a sparse parameter between 1/3 and 2/3. Thus I use 0.5. Figure 2 shows the 20 more frequent words in the corpus after tidying it.  
+
+#### Figure 2  
+Words distribution in the corpus. Notice that many of them are 'stop words'.  
+  
+```{r hist words}
+TDM1<-removeSparseTerms(x = TDM1,sparse = 0.5)
+orderTDM<-data.frame(as.matrix(TDM1),stringsAsFactors = FALSE)
+orderTDM<-cbind(orderTDM,rowSums(orderTDM))
+names(orderTDM)<-c("Blogs","News","Twitter","Total")
+orderTDM<-orderTDM[order(orderTDM$Total,decreasing = TRUE),]
+orderTDM$Term<-factor(row.names(orderTDM),levels = row.names(orderTDM)[order(orderTDM$Total,decreasing = TRUE)])
+orderTDM$StopWord<-orderTDM$Term%in%stopwords()
+
+orderTDMLong<-gather(orderTDM[1:20,], key = Document, value = n, -Total,-Term, -StopWord)
+
+ 
+histWords<-ggplot(data = orderTDMLong, aes(y=n, x=Term, fill=StopWord))+
+    geom_histogram(stat = "identity")+
+    theme_bw()+
+    facet_grid(~Document,labeller = label_both,scales = "free_x",margins = TRUE)+
+    coord_flip()
+
+histWords
+```
+
+Figures 3 and 4 show the frequency of the 20 more frequent bi and trigrams of the corpus.  
+
+#### Figure 3  
+Distribution of 2 words n-grams according to the documents in the corpus.  
+  
+```{r hist 2 ngrams}
+orderTDM2<-data.frame(as.matrix(TDM2),stringsAsFactors = FALSE)
+orderTDM2<-cbind(orderTDM2,rowSums(orderTDM2))
+names(orderTDM2)<-c("Blogs","News","Twitter","Total")
+orderTDM2<-orderTDM2[order(orderTDM2$Total,decreasing = TRUE),]
+orderTDM2$Term<-factor(row.names(orderTDM2),levels = row.names(orderTDM2)[order(orderTDM2$Total,decreasing = TRUE)])
+orderTDM2$StopWord1<-sapply(strsplit(as.character(orderTDM2$Term),
+                                     split = " "),
+                            function (x) x[1])%in%stopwords()
+orderTDM2$StopWord2<-sapply(strsplit(as.character(orderTDM2$Term),
+                                     split = " "),
+                            function (x) x[2])%in%stopwords()
+
+
+orderTDM2Long<-gather(orderTDM2[1:20,], key = Document, 
+                      value = n, -Total,-Term,
+                      -StopWord1,-StopWord2)
+
+ 
+histWords2<-ggplot(data = orderTDM2Long, aes(y=n, x=Term, fill=Document))+
+    geom_histogram(stat = "identity")+
+    theme_bw()+
+    #facet_grid(StopWord2~StopWord1,labeller = label_both)+
+    coord_flip()+
+    xlab("Terms")
+
+histWords2
+```
+
+#### Figure 4 
+Distribution of 3 words n-grams according to the documents in the corpus.  
+  
+```{r hist 3 ngrams}
+orderTDM3<-data.frame(as.matrix(TDM3),stringsAsFactors = FALSE)
+orderTDM3<-cbind(orderTDM3,rowSums(orderTDM3))
+names(orderTDM3)<-c("Blogs","News","Twitter","Total")
+orderTDM3<-orderTDM3[order(orderTDM3$Total,decreasing = TRUE),]
+orderTDM3$Term<-factor(row.names(orderTDM3),levels = row.names(orderTDM3)[order(orderTDM3$Total,decreasing = TRUE)])
+orderTDM3$StopWord1<-sapply(strsplit(as.character(orderTDM3$Term),
+                                     split = " "),
+                            function (x) x[1])%in%stopwords()
+orderTDM3$StopWord2<-sapply(strsplit(as.character(orderTDM3$Term),
+                                     split = " "),
+                            function (x) x[2])%in%stopwords()
+
+
+
+
+orderTDM3Long<-gather(orderTDM3[1:20,], key = Document, value = n, -Total,
+                      -Term,-StopWord1,-StopWord2)
+
+ 
+histWords3<-ggplot(data = orderTDM3Long, aes(y=n, x=Term, fill=Document))+
+    geom_histogram(stat = "identity")+
+    theme_bw()+
+    coord_flip()+
+    #facet_grid(StopWord2~StopWord1,labeller = label_both)+
+    xlab("Terms")
+
+histWords3
+```
+
+
+## What's next...  
+
+In order to built the predictive model, I will study about n-gram models and how to deal with out of vocabulary terms. I will continue processing the data and I will explore if word stemming is useful to strength the model.  
+Finally I will build a nice shiny web app and a presentation.  

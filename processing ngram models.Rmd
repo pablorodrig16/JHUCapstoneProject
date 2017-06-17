@@ -1,0 +1,614 @@
+---
+title: "Processing data from Swiftkey for JHU Coursera Data Science Capstone Project"
+output: html_notebook
+---
+# Introduction  
+
+This notebook includes chunks of R code to get and clean the data and generates `data.table` objects of 1, 2 and 3 terms ngram models.  
+Usually after each chunk I clean the memormy and restarted R session in Rstudio using `rs.restartR()` function. If not the process can not be done by my computer.  
+
+# Processing
+
+## Loading functions  
+
+Below are some functions used for processing the data  
+```{r functions}
+## Functions for data processing
+## 
+
+# Cleaning memory
+
+rm (list = ls())
+gc()
+
+# loading libraries
+library (doParallel)
+library(data.table)
+library (quanteda)
+
+
+#function to get a list with train and test data as specified by ratio from
+#a sampled vector (prop of x)
+resampleTrainTest<-function (x, prop=0.2,ratio=0.8){
+    l<-length (x)
+    x<-x[sample(1:l,size = floor(l*prop),replace = FALSE)]
+    l<-length (x)
+    index<-((1:l)/l)<=ratio
+    list (train=x[index],
+          test=x[!index])
+}
+
+# function to do parallel processing
+parallelFUN <- function(FUN, ...) {
+    nc <- detectCores()
+    clusters <- makeCluster(nc)
+    registerDoParallel(clusters)
+    result <- FUN(...)
+    stopCluster(clusters)
+    result
+}
+
+# replace UNK words
+replaceUNK<-function (x, vocabulary=character(), split=" "){
+    x<-tolower(x)
+    words<-strsplit(x,split)
+    words<-sapply(words, function (y) ifelse(y%in%vocabulary, y, "<unk>"))
+    return (as.character(words))
+}
+
+
+replaceUNKword<-function (x, v=vocabulary$terms){
+    x<-tolower(x)
+    ifelse(x%in%v, x, "<unk>")
+}
+
+# The following functions use quanteda package
+# tokenize in sentences 
+sent<-function (cp){
+    se<-tokens(cp, 
+               what= "sentence",
+               removePunct=TRUE,
+               removeSymbols=TRUE,
+               removeSeparators=TRUE, 
+               removeTwitter=TRUE, 
+               removeURL=TRUE)
+    se<-paste("#s# #s# ",se," #e#",sep = "")
+    return(se)
+}
+
+# tokenize in grams - the argument sent must be a text
+ng<-function (sent,n){
+    tokens(sent, 
+           what="word",
+           ngrams=n,
+           concatenator=" ",
+           removePunct = TRUE)
+}
+
+# creates datatables
+dfms<-function (sent, n) {
+    dfm(sent,
+        ngrams=n,
+        concatenator=" ",
+        removePunct = TRUE, 
+        tolower=TRUE)
+}
+```
+
+
+## Getting the data and sampling  
+
+After several trials I decided to sample (30%) the each of the 3 corpus to allow processing with my computer as follows:  
+
+```{r getting data}
+# loading functions 
+
+source(file = "functions.R",echo = FALSE)
+
+# Download docs
+if (!dir.exists("Corpora")){
+    dir.create("Corpora")
+    download.file(url = "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip",
+                  destfile = "Coursera-SwiftKey.zip")
+    unzip(zipfile = "Coursera-SwiftKey.zip")
+    file.remove("Coursera-SwiftKey.zip")
+}
+
+blogs<-readLines(file.path("Corpora","en_US","en_US.blogs.txt"),warn = FALSE, encoding = "UTF-8")
+news<-readLines(file.path("Corpora","en_US","en_US.news.txt"), warn = FALSE, encoding = "UTF-8")
+twitter<-readLines(file.path("Corpora","en_US","en_US.twitter.txt"),warn = FALSE, encoding = "UTF-8")
+
+# sampling documents
+set.seed(1000)
+sblogs<-resampleTrainTest(blogs,prop = .3,ratio = .95)
+snews<-resampleTrainTest(news,prop = .3,ratio = .95)
+stwitter<-resampleTrainTest(twitter,prop = .3, ratio = .95)
+
+rm (blogs,news, twitter)
+#
+blogstrain<-corpus(sblogs$train)
+newstrain<-corpus(snews$train)+corpus(stwitter$train)
+twittertrain<-corpus(stwitter$train)
+
+if (!dir.exists("ngram model")){
+    dir.create("ngram model")
+}
+
+
+# saving corpus as RDS
+saveRDS(blogstrain,file = file.path("ngram model","blogstrain.rds"))
+saveRDS(newstrain,file = file.path("ngram model","newstrain.rds"))
+saveRDS(twittertrain,file = file.path("ngram model","twittertrain.rds"))
+
+blogstest<-corpus(sblogs$test)
+newstest<-corpus(snews$test)+corpus(stwitter$test)
+twittertest<-corpus(stwitter$test)
+
+saveRDS(blogstest,file = file.path("ngram model","blogstest.rds"))
+saveRDS(newstest,file = file.path("ngram model","newstest.rds"))
+saveRDS(twittertest,file = file.path("ngram model","twittertest.rds"))
+
+print("getting docs ready")
+.rs.restartR(afterRestartCommand = source(file = "processing grams.R"))
+```
+
+## Processing corpus to document-feature matrix  
+
+I first tokenize in sentence and add start and end tags:   
+```{r sentence token}
+## loading functions
+
+
+source(file = "functions.R",echo = FALSE)
+
+
+## reading corpus
+files<-c("blogstest.rds","newstest.rds","twittertest.rds","blogstrain.rds","newstrain.rds","twittertrain.rds")
+
+
+## tokenizing in sentences and adding start and end tags
+for (f in files){
+    trainCorpus<-readRDS(file.path("ngram model",f))
+    
+    ## tokenkize trainCorpus as sentences and add start and end marks
+    trainCorpus<-parallelFUN(FUN = sent, trainCorpus)
+    saveRDS(trainCorpus,file = file.path("ngram model",f))
+}
+
+print ("processing grams ready")
+.rs.restartR(afterRestartCommand = source(file = "processing grams 2.R"))
+
+```
+
+Then document-feature matrix for each corpus are created using `quanteda` package and collapsed to `data.table` objects:
+```{r dfm per corpus}
+source(file = "functions.R",echo = FALSE)
+
+files<-c("blogstest.rds","newstest.rds","twittertest.rds","blogstrain.rds","newstrain.rds","twittertrain.rds")
+
+
+for (f in files){
+    trainCorpus<-readRDS(file.path("ngram model",f))
+    
+    for (n in 1:3)
+    {
+        ## Creation of a dfm
+        grams<-parallelFUN(FUN = dfms, sent = trainCorpus, n = n)
+        
+        ## Creation of a data.table with terms frequency
+        grams<-data.table(terms=featnames(grams),freq=as.integer(colSums(grams)))
+        
+        ## file name
+        fileName<-paste("grams",n,f, sep="_")
+        
+        ## saving
+        saveRDS(grams ,file = file.path("ngram model",fileName))
+        
+    }
+}
+
+
+print("processing grams b ready")
+.rs.restartR(afterRestartCommand = source(file = "ngram datatables.R"))
+
+```
+
+## Merging `data.table` objects from different training corpus
+
+```{r merging corpus}
+# loading functions
+source(file = "functions.R",echo = FALSE)
+
+
+
+files<-dir(file.path("ngram model"))
+
+files<-files[grepl("gram",files)]
+
+files<-files[grepl("train",files)]
+
+## getting grams
+
+
+for (i in 1:3){
+    grams<-data.table(terms=character(), freq=integer())
+    fileName<-paste("grams",i,".rds",sep="")
+    f<-files[grepl(pattern = as.character(i), files)]
+    for (file in f){
+        gramX<-readRDS(file = file.path("ngram model",file))
+        grams<-rbindlist(list(grams,gramX))
+    }
+    grams<-grams[,sum(freq),by=terms][,.(terms,freq=V1)]
+    saveRDS(grams ,file = file.path("ngram model",fileName))
+}
+
+print("ngram datatables ready")
+
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source(file = "grams1.R"))
+```
+
+
+# ngram models  
+
+I decided to use a Kneser Ney smoothing for the models according to Jurafsky D, Martin JH, Daniel, James H, Martin. Language Modeling with N-grams. In: Speech and Language Processing. 3rd ed. 2016.  
+
+## Generating 1 term ngram model table
+
+```{r grams1}
+#########
+
+# loading functions 
+
+library (data.table)
+
+
+## reloads grams1 dfm
+grams1<-readRDS(file = file.path("ngram model","grams1.rds"))
+
+s<-Sys.time()
+
+## removing terms with numbers and other special characters
+grams1<-grams1[!grepl(pattern = "[^a-z\\-]",x = terms)|
+                   !grepl(pattern = "[^a-z\\']",x = terms)|
+                   grepl(pattern = "#[se]#",terms)]
+
+## adding UNK term
+grams1<-rbindlist(l = list(grams1, 
+                           list(terms=c("<unk>"),
+                                freq=c(0))))
+
+
+# final output
+grams1<-grams1[, .(terms, freq, index=1:.N)]
+
+
+e<-Sys.time()
+
+saveRDS(grams1 ,file = file.path("ngram model","grams1.rds"),compress = FALSE)
+print(e-s)
+
+
+print("grams 1 ready")
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source(file = "grams2.R"))
+```
+
+## Generating 2 terms ngram model table
+
+```{r grams2}
+
+# loading functions 
+
+library(data.table)
+
+
+#################
+
+s<-Sys.time()
+
+# reloading training data
+grams2<-readRDS(file = file.path("ngram model","grams2.rds"))
+
+
+## extracting terms 1 and 2 from bigrams
+grams2<-grams2[,.(terms,
+                  term1=sapply(strsplit(terms," "),function (x) x[1]),
+                  term2=sapply(strsplit(terms," "),function (x) x[2]),
+                  freq)]
+
+
+
+## Inner-Join grams2 and grams1 data.tables 
+
+grams1<-readRDS(file.path("ngram model","grams1.rds"))
+
+options(datatable.nomatch=0)
+setkey(grams1, terms)
+
+setkey(grams2, term1)
+grams2<-grams2[grams1,
+               ][,.(terms, freq, term1=index, term2)]
+
+setkey(grams2, term2)
+grams2<-grams2[grams1,
+               ][,.(terms, freq, term1, term2=index)]
+
+
+# final output
+grams2<-grams2[,.(terms, term1, term2, freq)]
+
+
+## saving grams
+e<-Sys.time()
+
+saveRDS(grams2 ,file = file.path("ngram model","grams2.rds"),compress = FALSE)
+print(e-s)
+
+print("grams 2 ready")
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source(file = "grams3.R"))
+```
+
+## Generating 3 terms ngram model table  
+This task exhausted my PC so I needed to split it in several chunks.  
+
+```{r grams3 - extracting term12}
+# loading functions 
+
+library (data.table)
+
+##########
+
+
+
+# reloading training data
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+s<-Sys.time()
+
+
+## extracting terms 1+2 and 3 from trigrams
+grams3<-grams3[,.(terms,
+                  term12=sapply(strsplit(terms," "),function (x) paste(x[1:2],collapse = " ")),
+                  freq)]
+
+saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"))
+
+e<-Sys.time()
+
+print(e-s)
+
+print ("grams3 a ready")
+
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source("grams3 b.R"))
+```
+
+
+```{r grams3 - extracting term 3}
+# loading functions 
+
+library(data.table)
+
+##########
+
+
+
+# reloading training data
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+s<-Sys.time()
+
+
+## extracting terms 1+2 and 3 from trigrams
+grams3<-grams3[,.(terms,
+                  term12,
+                  term3=sapply(strsplit(terms," "),function (x) x[3]),
+                  freq)]
+
+
+grams3<-grams3[,.(term12,term3,freq)]
+saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"))
+
+e<-Sys.time()
+
+print(e-s)
+
+warning("grams 3 b ready")
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source("grams3 c.R"))
+```
+
+
+```{r grams3 - inner join with grams2}
+# loading functions 
+
+library (data.table)
+
+##########
+
+
+
+# reloading training data
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+s<-Sys.time()
+
+## Inner-Join grams3 with gram
+
+grams2<-readRDS(file.path("ngram model","grams2.rds"))
+
+options(datatable.nomatch=0)
+setkey(grams2, terms)
+
+
+setkey(grams3, term12)
+grams3<-grams3[grams2
+               ][,.(freq, term1, term2, term3)]
+
+saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"),compress = FALSE)
+
+
+e<-Sys.time()
+
+print(e-s)
+
+warning("grams 3 c ready")
+
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source("grams3 d.R"))
+```
+
+
+```{r grams3 - inner join with grams1}
+# loading functions 
+
+library (data.table)
+
+##########
+
+
+
+# reloading training data
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+s<-Sys.time()
+
+## Inner-Join grams3 with grams1 for term3
+
+grams1<-readRDS(file.path("ngram model","grams1.rds"))
+setkey(grams1, terms)
+setkey(grams3, term3)
+grams3<-grams3[grams1
+               ][,.(freq, term1, term2, term3= index)]
+grams3<-grams3[!is.na(freq)]
+
+saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"),compress = FALSE)
+
+e<-Sys.time()
+
+print(e-s)
+
+warning("grams 3 d ready")
+
+rm(list = ls())
+.rs.restartR(afterRestartCommand = source("grams3 e.R"))
+```
+
+
+```{r grams - KN smoothing}
+# loading functions 
+
+library (data.table)
+
+options(datatable.nomatch = 0)
+##########
+
+# reloading training data
+s<-Sys.time()
+
+grams1<-readRDS(file = file.path("ngram model","grams1.rds"))
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+setkey(grams3,term2,term1)
+
+##KN smoothing
+
+Pcont<-grams3[,.N,by=term3]
+
+grams2<-grams3[,sum(freq),by=list(term2,term3)][,.(term2,term3,freq=V1)][order(-freq)]
+
+# Calculating KN smoothing
+## lambda
+d<-0.75
+
+bi<-grams2[,.N]
+tri<-grams3[,.N]
+V<-Pcont[,.N]
+
+
+## lambdas
+bigrams<-grams2[,.(types=.N, tokens=sum(freq)),by=term2
+                ][,lambda:=(d*types)/bi]
+
+setkey(bigrams,term2)
+setkey(grams2,term2)
+grams2<-grams2[bigrams]
+
+
+trigrams<-grams3[,.(types=.N, tokens=sum(freq)),by=list(term1,term2)
+                 ][,lambda:=(d*types)/tri]
+setkey(trigrams,term2,term1)
+setkey(grams3,term2,term1)
+grams3<-grams3[trigrams]
+
+## Pcont and kn smoothing
+
+#unigrams
+Pcont<-Pcont[,Pkn1:=((N-d)/sum(N))+ (d/sum(N))]
+
+#bigrams
+setkey(Pcont,term3)
+setkey(grams2,term3)
+grams2<-grams2[Pcont]
+
+grams2<-grams2[,Pkn2:=((freq-d)/tokens)+ exp(log(lambda) + log(Pkn1))][,.(term2,term3,freq,Pkn2)]
+
+#trigrams
+setkey(grams2,term3, term2)
+setkey(grams3,term3,term2)
+grams3<-grams3[grams2]
+
+grams3<-grams3[,Pkn3:=((freq-d)/tokens)+ exp(log(lambda) + log(Pkn2))]
+
+
+# final output
+grams3<-grams3[,.(term1, term2, term3, freq, Pkn3)]
+grams2<-grams2[,.(term2,term3,freq,Pkn2)]
+Pcont<-Pcont[,.(term3, freq=N, Pkn1)]
+grams1<-grams1[,.(terms,index)]
+
+saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"), compress = FALSE)
+saveRDS(grams2 ,file = file.path("ngram model","grams2.rds"), compress = FALSE)
+saveRDS(Pcont ,file = file.path("ngram model","Pcont.rds"), compress = FALSE)
+saveRDS(grams1 ,file = file.path("ngram model","grams1.rds"), compress = FALSE)
+
+
+e<-Sys.time()
+
+print(e-s)
+
+warning("end of processing")
+
+rm(list = ls())
+.rs.restartR()
+```
+
+# ngram models result  
+
+The codes give the following result:  
+
+## Grams1
+```{r grams1 result}
+require (data.table)
+grams1<-readRDS(file = file.path("ngram model","grams1.rds"))
+
+grams1
+```
+
+The first 2 terms are tags indicating start and end of a sentence. The index is used for coding Pcont, grams2 and grams3.  
+
+## Grams2  
+```{r grams2 result}
+grams2<-readRDS(file = file.path("ngram model","grams2.rds"))
+
+grams2[order(-freq)]
+```
+
+## Grams3  
+```{r grams3 result}
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+grams3[order(-freq)]
+```
+
