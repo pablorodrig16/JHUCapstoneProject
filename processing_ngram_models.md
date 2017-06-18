@@ -1,15 +1,10 @@
----
-title: "Processing data from Swiftkey for JHU Coursera Data Science Capstone Project"
-output: 
-  html_document: 
-    keep_md: yes
-    self_contained: no
----
+# Processing data from Swiftkey for JHU Coursera Data Science Capstone Project
 # Introduction  
 
 This notebook includes chunks of R code to get and clean the data and generates `data.table` objects of 1, 2 and 3 terms ngram models.  
 Usually after each chunk I clean the memormy and restarted R session in Rstudio using `rs.restartR()` function. If not the process can not be done by my computer.  
-```{r}
+
+```r
 knitr::opts_chunk$set(eval = FALSE, message = FALSE, warning = FALSE)
 ```
 
@@ -18,7 +13,8 @@ knitr::opts_chunk$set(eval = FALSE, message = FALSE, warning = FALSE)
 ## Loading functions  
 
 Below are some functions used for processing the data  
-```{r functions}
+
+```r
 ## Functions for data processing
 ## 
 
@@ -106,7 +102,8 @@ dfms<-function (sent, n) {
 
 After several trials I decided to sample (30%) the each of the 3 corpus to allow processing with my computer as follows:  
 
-```{r getting data}
+
+```r
 # loading functions 
 
 source(file = "functions.R",echo = FALSE)
@@ -161,7 +158,8 @@ print("getting docs ready")
 ## Processing corpus to document-feature matrix  
 
 I first tokenize in sentence and add start and end tags:   
-```{r sentence token}
+
+```r
 ## loading functions
 
 
@@ -183,11 +181,11 @@ for (f in files){
 
 print ("processing grams ready")
 .rs.restartR(afterRestartCommand = source(file = "processing grams 2.R"))
-
 ```
 
 Then document-feature matrix for each corpus are created using `quanteda` package and collapsed to `data.table` objects:
-```{r dfm per corpus}
+
+```r
 source(file = "functions.R",echo = FALSE)
 
 files<-c("blogstest.rds","newstest.rds","twittertest.rds","blogstrain.rds","newstrain.rds","twittertrain.rds")
@@ -216,12 +214,12 @@ for (f in files){
 
 print("processing grams b ready")
 .rs.restartR(afterRestartCommand = source(file = "ngram datatables.R"))
-
 ```
 
 ## Merging `data.table` objects from different training corpus
 
-```{r merging corpus}
+
+```r
 # loading functions
 library (data.table)
 
@@ -261,7 +259,8 @@ I decided to use a Kneser Ney smoothing for the models according to Jurafsky D, 
 
 ## Generating 1 term ngram model table
 
-```{r grams1}
+
+```r
 #########
 
 # loading functions 
@@ -304,8 +303,8 @@ rm(list = ls())
 
 ## Generating 2 terms ngram model table
 
-```{r grams2}
 
+```r
 # loading functions 
 
 library(data.table)
@@ -365,7 +364,8 @@ rm(list = ls())
 ## Generating 3 terms ngram model table  
 This task exhausted my PC so I needed to split it in several chunks.  
 
-```{r grams3 - extracting term12}
+
+```r
 # loading functions 
 
 library (data.table)
@@ -398,7 +398,8 @@ rm(list = ls())
 ```
 
 
-```{r grams3 - extracting term 3}
+
+```r
 # loading functions 
 
 library(data.table)
@@ -433,7 +434,8 @@ rm(list = ls())
 ```
 
 
-```{r grams3 - inner join with grams2}
+
+```r
 # loading functions 
 
 library (data.table)
@@ -474,7 +476,8 @@ rm(list = ls())
 ```
 
 
-```{r grams3 - inner join with grams1}
+
+```r
 # loading functions 
 
 library (data.table)
@@ -517,7 +520,8 @@ rm(list = ls())
 
 # Interpolated Kneser Ney smoothing  
 This code creates ngram model tables including Pkn variable:  
-```{r grams - KN smoothing}
+
+```r
 # loading functions 
 
 library (data.table)
@@ -609,26 +613,74 @@ rm(list = ls())
 The codes give the following result:  
 
 ## Grams1
-```{r grams1 result, eval=TRUE}
+
+```r
 require (data.table)
 grams1<-readRDS(file = file.path("ngram model","Pcont.rds"))
 
 grams1
 ```
 
+```
+##          term3  freq         Pkn1
+##      1:      2  4056 8.266048e-04
+##      2:      3   426 8.681796e-05
+##      3:      4 35420 7.218526e-03
+##      4:      5  3336 6.798702e-04
+##      5:      6   200 4.075960e-05
+##     ---                          
+## 146728: 261600     1 2.037980e-07
+## 146729: 261601     1 2.037980e-07
+## 146730: 261602     1 2.037980e-07
+## 146731: 261603     1 2.037980e-07
+## 146732: 261604     1 2.037980e-07
+```
+
 The first 2 terms are tags indicating start and end of a sentence. The index is used for coding Pcont, grams2 and grams3.  
 
 ## Grams2  
-```{r grams2 result, eval=TRUE}
+
+```r
 grams2<-readRDS(file = file.path("ngram model","grams2.rds"))
 
 grams2[order(-freq)]
 ```
 
+```
+##          term2  term3   freq         Pkn2
+##       1:     1     89 258213 9.409839e-02
+##       2:     1     40  86537 3.187309e-02
+##       3:    46     40  84821 2.814109e-01
+##       4:    42     40  84118 2.413672e-01
+##       5:   113     40  56770 2.159585e-01
+##      ---                                 
+## 1884319:  2593 261600      2 1.162791e-03
+## 1884320:   171 261601      2 3.700326e-05
+## 1884321:    40 261602      2 1.445227e-06
+## 1884322:  8737 261603      2 3.117207e-03
+## 1884323:   113 261604      2 4.754017e-06
+```
+
 ## Grams3  
-```{r grams3 result, eval=TRUE}
+
+```r
 grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
 
 grams3[order(-freq)]
+```
+
+```
+##          term1 term2  term3   freq        Pkn3
+##       1:     1     1     89 258213 0.094565830
+##       2:     1     1     40  86537 0.031694703
+##       3:     1     1     75  44957 0.016465212
+##       4:     1     1     84  43863 0.016063835
+##       5:     1     1     53  42390 0.015524489
+##      ---                                      
+## 4906815:    48  2593 261600      2 0.004512646
+## 4906816:  1185   171 261601      2 0.009398496
+## 4906817:   456    40 261602      2 0.000777847
+## 4906818:   135  8737 261603      2 0.156250002
+## 4906819: 79907   113 261604      2 0.312500000
 ```
 

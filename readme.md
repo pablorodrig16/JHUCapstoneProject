@@ -1,14 +1,12 @@
 ---
-title: "Readme"
 author: "POR"
-date: "17 de junio de 2017"
-output: html_document
+date: "`r date()`"
+output: 
+  html_document: 
+    keep_md: yes
+    self_contained: no
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
-
+# JHU Coursera Data Science Capstone Project Repository
 This repository holds codes for building a ngram model for word prediction required by Coursera Data Science Capstone Project:
 
 - processing ngram models.Rmd is a Rstudio notebook with code chunks for data and modelling.  
