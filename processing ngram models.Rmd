@@ -217,7 +217,7 @@ print("processing grams b ready")
 
 ```{r merging corpus}
 # loading functions
-source(file = "functions.R",echo = FALSE)
+library (data.table)
 
 
 
@@ -282,6 +282,8 @@ grams1<-rbindlist(l = list(grams1,
 # final output
 grams1<-grams1[, .(terms, freq, index=1:.N)]
 
+# prunning terms
+grams1<-grams1[freq>1]
 
 e<-Sys.time()
 
@@ -337,6 +339,10 @@ grams2<-grams2[grams1,
 
 # final output
 grams2<-grams2[,.(terms, term1, term2, freq)]
+
+
+# prunning terms
+grams2<-grams2[freq>1]
 
 
 ## saving grams
@@ -447,6 +453,7 @@ setkey(grams3, term12)
 grams3<-grams3[grams2
                ][,.(freq, term1, term2, term3)]
 
+
 saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"),compress = FALSE)
 
 
@@ -484,6 +491,11 @@ grams3<-grams3[grams1
                ][,.(freq, term1, term2, term3= index)]
 grams3<-grams3[!is.na(freq)]
 
+
+
+# prunning terms
+grams3<-grams3[freq>1]
+
 saveRDS(grams3 ,file = file.path("ngram model","grams3.rds"),compress = FALSE)
 
 e<-Sys.time()
@@ -497,6 +509,8 @@ rm(list = ls())
 ```
 
 
+# Interpolated Kneser Ney smoothing  
+This code creates ngram model tables including Pkn variable:  
 ```{r grams - KN smoothing}
 # loading functions 
 
