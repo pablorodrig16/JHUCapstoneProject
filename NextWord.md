@@ -1,7 +1,7 @@
 Next word using a ngram model
 ========================================================
 author: Pablo O Rodriguez
-date: Mon Jun 19 00:19:49 2017
+date: Mon Jun 19 00:58:14 2017
 autosize: true
 
 
@@ -45,8 +45,8 @@ Using the app
 class::small-code
 ![alt text](nextWord.PNG)
 ***
-- Right panel: is where the testing text should be introduced. With text entry, prediction occurs simultaneously. Reference to the [ngram model repository](https://github.com/pablorodrig16/JHUCapstoneProject) and to my [milestone report](https://rpubs.com/pablo_rodriguez/MilestoneReport) are included.  
-- Left Panel: displays the result. In red the word with the highest probability $(P (w~i~|w~i-2~w~i-1~))$ according to the entry text and the conditional probability. Below, some other possible words in decreasing order of $(P (w~i~|w~i-2~w~i-1~))$.  
+- Left panel: is where the testing text should be introduced. With text entry, prediction occurs simultaneously. Reference to the [ngram model repository](https://github.com/pablorodrig16/JHUCapstoneProject) and to my [milestone report](https://rpubs.com/pablo_rodriguez/MilestoneReport) are included.  
+- Right Panel: displays the result. In red the word with the highest probability $(P (w~i~|w~i-2~w~i-1~))$ according to the entry text and the conditional probability. Below, some other possible words in decreasing order of $(P (w~i~|w~i-2~w~i-1~))$.  
 
 Ngram model description
 ========================================================
