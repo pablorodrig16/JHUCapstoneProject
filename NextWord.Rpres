@@ -1,0 +1,128 @@
+Next word using a ngram model
+========================================================
+author: Pablo O Rodriguez
+date: `r date()`
+autosize: true
+
+
+<style>
+
+/* slide titles */
+.reveal h3 { 
+  color: blue;
+}
+
+/* text styles */
+.reveal p {
+    font-size: 30px;
+}
+
+/* code styles */
+.reveal code {
+    font-size: 20px;
+}
+
+/* ordered and unordered list styles */
+.reveal ul, 
+.reveal ol {
+    font-size: 20px;
+}
+
+}
+</style>
+
+Summary
+========================================================
+This presentation objective is to explain the utilization and the background of my [next word prediction](https://porbm28.shinyapps.io/next_word_prediction/) shiny app.  
+Content:
+- Using the [next word prediction](https://porbm28.shinyapps.io/next_word_prediction/) shiny app  
+- Ngram model description
+- Evaluation of the model performance  
+
+
+Using the app
+========================================================
+class::small-code
+![alt text](nextWord.PNG)
+***
+- Right panel: is where the testing text should be introduced. With text entry, prediction occurs simultaneously. Reference to the [ngram model repository](https://github.com/pablorodrig16/JHUCapstoneProject) and to my [milestone report](https://rpubs.com/pablo_rodriguez/MilestoneReport) are included.  
+- Left Panel: displays the result. In red the word with the highest probability $(P (w~i~|w~i-2~w~i-1~))$ according to the entry text and the conditional probability. Below, some other possible words in decreasing order of $(P (w~i~|w~i-2~w~i-1~))$.  
+
+Ngram model description
+========================================================
+Full description of the code can be found [here](https://github.com/pablorodrig16/JHUCapstoneProject/blob/master/processing_ngram_models.md).   
+```{r grams3 b, echo=FALSE,figs.only=TRUE}
+require(data.table);require(ggplot2)
+
+grams3<-readRDS(file = file.path("ngram model","grams3.rds"))
+
+g3<-ggplot(data = grams3[,sum(Pkn3),by=list(term1,term2)],aes(x=V1))
+g3<-g3+geom_histogram(fill="blue")
+g3<-g3+scale_y_log10()
+g3<-g3
+g3<-g3+xlab(expression("Cumulative P ("*W[i]*"|"*W[i-2]*" "*W[i-1]*") per bigram"))
+g3<-g3+ggtitle("Probability coverage per bigram of the 3 terms model")
+
+print(g3)
+```
+
+***
+- `quanteda` and `data.table` packages were used.  
+- A sample of 30% the documents were obtained (95% for training the model).  
+- First documents were tokenized to sentences and the start and the of each sentece was tagged with an special token.  
+- Then 1, 2 and 3 terms ngrams were extracted and interpolated Kneyer-Ney smoothing (see [Jurafsky and Martin](https://web.stanford.edu/~jurafsky/slp3/)) was used to order the terms. Rare terms (frequency less than 3) were prunned.  
+- In order to predict the next word, the app searchs in ngrams table of 3 terms. If no hit then looks in 2 terms. If no hit, it picks up the term with the highest $P~continuation~$.  
+
+
+Model performance evaluation
+========================================================
+
+Using test data from 'news' documents, the plot shows the probability of success of the model (using different number of predicted words) for predicting the next word following a bigram:  
+***
+```{r, echo=FALSE}
+require (data.table);require(ggplot2)
+
+
+source(file.path("prediction functions.R"))
+
+grams3test<-readRDS(file = file.path("ngram model","grams_3_newstest.rds"))
+
+grams3test[,term12:=gsub(pattern = "[^ ]*$",replacement = "",x = terms)]
+
+set.seed(1)
+s<-100
+sp<-sample(1:grams3test[,.N],size = s)
+
+g3test<-grams3test[sp]
+
+g3test<-g3test[,term3:=gsub(pattern = term12,replacement = "",x = terms),by=term12]
+
+bigrams<-g3test[,term12]
+
+
+n=c(1,3,5,10)
+j=1:s
+
+termPrediction<-data.frame(row.names = paste("gram",j))
+prediction<-lapply(bigrams,
+                   function (x) {
+                       backToWord(x = x,n = max(n),
+                                grams1=grams1,grams2=grams2,
+                                  grams3=grams3,Pcont=Pcont)[,term3]
+                       })
+
+
+for (i in 1:length(n)){
+    pred<-sapply(j,function (x) any(prediction[[x]][1:n[i]]%in%g3test[x,term3]))
+    termPrediction[,i]<-pred
+}
+names(termPrediction)<-paste("numTerms",n,sep = "")
+
+result<-data.frame(n=as.factor(n),hits=colMeans(termPrediction),row.names = NULL)
+
+predPlot<-ggplot(result,aes(x = n,y = hits))+
+    geom_bar(stat ="identity",fill=n,show.legend = FALSE)+
+    xlab("Number of predicted words")+ylab("Proportion of hits")
+
+predPlot
+```
